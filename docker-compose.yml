@@ -94,6 +94,8 @@ services:
   ohdsi-webapi-3:
     profiles: [ "webapi-3" ]
     image: ${WEBAPI_IMAGE_3:-ohdsi/webapi:3.0-local}
+    env_file:
+      - ./env/webapi-3.env
     extends:
       file: "./compose/ohdsi-webapi-3.yml"
       service: ohdsi-webapi-3
@@ -101,9 +103,21 @@ services:
   ohdsi-atlas-from-image:
     profiles: [ "default", "atlas-from-image" ]
     image: docker.io/ohdsi/atlas:latest
-    extends: 
+    extends:
       file: "./compose/ohdsi-atlas.yml"
       service: ohdsi-atlas
+
+  # Atlas 3.0 (nginx static app) - locally-built image, env-var config via env/atlas-3.env.
+  # Not in the "default" profile; uses container_name ohdsi-atlas so do NOT run this
+  # alongside the 2.x ohdsi-atlas-from-image.
+  ohdsi-atlas-3:
+    profiles: [ "atlas-3" ]
+    image: ${ATLAS_IMAGE_3:-ohdsi/atlas:3.0-local}
+    env_file:
+      - ./env/atlas-3.env
+    extends:
+      file: "./compose/ohdsi-atlas-3.yml"
+      service: ohdsi-atlas-3
 
   # WebAPI and Atlas services based on git repo (for developers) -------------
   ohdsi-webapi-from-git:

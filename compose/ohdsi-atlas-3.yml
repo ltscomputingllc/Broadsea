@@ -1,0 +1,21 @@
+version: '3.9'
+
+# Broadsea service override for OHDSI Atlas 3.0 (nginx-unprivileged static app, port 8080).
+# Used by the "atlas-3" profile in docker-compose.yml. Config is pure env-var: the stock 3.0
+# image's built-in /docker-entrypoint.d/30-atlas-env-subst.sh envsubst's its own embedded
+# config-local.js from the env vars injected via env_file (declared at the root level).
+# No mounted template / envsubst.sh / config-gis.js, and no entrypoint override (all the 2.x
+# atlas machinery is obsolete for 3.0).
+
+services:
+
+  ohdsi-atlas-3:
+    # keep the 2.x container name so the Traefik router/service "ohdsi-atlas"
+    # (http://ohdsi-atlas:8080, path /atlas) continues to resolve unchanged
+    container_name: ohdsi-atlas
+    platform: ${DOCKER_ARCH}
+    restart: unless-stopped
+    ipc: none
+    privileged: false
+    labels:
+      - "traefik.enable=true"
