@@ -1,0 +1,70 @@
+version: '3.9'
+
+# Broadsea service override for OHDSI WebAPI 3.0 (Spring Boot 3.x JAR, Java 21).
+# Standalone definition (does NOT extend compose/ohdsi-webapi.yml, which targets 2.x).
+# Used by the "webapi-3" profile in docker-compose.yml. Auth is left fully disabled for
+# the smoke test.
+
+services:
+
+  ohdsi-webapi-3:
+    # keep the 2.x container name so the Traefik router/service "ohdsi-webapi"
+    # (http://ohdsi-webapi:8080) continues to resolve unchanged
+    container_name: ohdsi-webapi
+    platform: ${DOCKER_ARCH}
+    restart: unless-stopped
+    ipc: none
+    read_only: true
+    privileged: false
+    depends_on:
+      broadsea-atlasdb:
+        condition: service_healthy
+    tmpfs:
+      - /tmp
+      # 3.0 writes logs here; explicit uid/gid so the read-only-fs tmpfs is writable
+      # by the image's USER 101 (a plain tmpfs would be root-owned)
+      - /var/lib/ohdsi/webapi/logs:uid=101,gid=101,mode=0755
+    volumes:
+      - ../webapi/docker-entrypoint-3.sh:/entrypoint.sh
+      - ${WEBAPI_CACERTS_FILE}:/tmp/cacerts
+    entrypoint: ["/bin/sh","/entrypoint.sh"]
+    secrets:
+      - WEBAPI_DATASOURCE_PASSWORD
+    environment:
+      # Context path: 3.0 already defaults to /WebAPI; set explicitly for clarity
+      SERVER_SERVLET_CONTEXT_PATH: /WebAPI
+
+      # Datasource (unchanged var names between 2.x and 3.0)
+      DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
+      DATASOURCE_URL: ${WEBAPI_DATASOURCE_URL}
+      DATASOURCE_USERNAME: ${WEBAPI_DATASOURCE_USERNAME}
+      DATASOURCE_OHDSI_SCHEMA: ${WEBAPI_DATASOURCE_OHDSI_SCHEMA}
+      SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA: ${WEBAPI_DATASOURCE_OHDSI_SCHEMA}
+      SPRING_BATCH_REPOSITORY_TABLEPREFIX: ${WEBAPI_DATASOURCE_OHDSI_SCHEMA}.BATCH_
+
+      # Flyway — Spring Boot names (3.0), not the 2.x FLYWAY_DATASOURCE_* names.
+      # SPRING_FLYWAY_PASSWORD is exported by the entrypoint from the Docker secret.
+      SPRING_FLYWAY_URL: ${WEBAPI_DATASOURCE_URL}
+      SPRING_FLYWAY_USER: ${WEBAPI_DATASOURCE_USERNAME}
+      SPRING_FLYWAY_SCHEMAS: ${WEBAPI_DATASOURCE_OHDSI_SCHEMA}
+      SPRING_FLYWAY_PLACEHOLDERS_OHDSISCHEMA: ${WEBAPI_DATASOURCE_OHDSI_SCHEMA}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE}
+      # The broadsea-atlasdb image's webapi schema uses Flyway's default history table
+      # name (verified: webapi.flyway_schema_history, migrated up to 2.2.5). WebAPI 3.0 /
+      # Spring Boot also defaults to flyway_schema_history, so 3.0 will pick up the
+      # existing history and apply only the pending V2.x migrations.
+      SPRING_FLYWAY_TABLE: flyway_schema_history
+
+      SOLR_ENDPOINT: "${SOLR_VOCAB_ENDPOINT}"
+
+      LOGGING_LEVEL_ROOT: ${WEBAPI_LOGGING_LEVEL_ROOT}
+      LOGGING_LEVEL_ORG_OHDSI: ${WEBAPI_LOGGING_LEVEL_ORG_OHDSI}
+
+      # NOTE: auth is intentionally disabled for the smoke test. WebAPI 3.0 does NOT use
+      # the 2.x-style SECURITY_PROVIDER / SECURITY_CORS_ENABLED / SECURITY_ORIGIN vars,
+      # and all SECURITY_AUTH_*_ENABLED are left unset (default false).
+      # If CORS needs overriding later, 3.0 uses:
+      #   SECURITY_CORS_ALLOWED_ORIGINS: "${HTTP_TYPE}://${BROADSEA_HOST}"
+
+    labels:
+      - "traefik.enable=true"

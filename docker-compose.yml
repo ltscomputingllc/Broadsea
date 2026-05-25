@@ -84,9 +84,19 @@ services:
   ohdsi-webapi-from-image:
     profiles: [ "default", "webapi-from-image" ]
     image: docker.io/ohdsi/webapi:latest
-    extends: 
+    extends:
       file: "./compose/ohdsi-webapi.yml"
       service: ohdsi-webapi
+
+  # WebAPI 3.0 (Spring Boot JAR / Java 21) - locally-built image.
+  # Not in the "default" profile; uses container_name ohdsi-webapi so do NOT run this
+  # alongside the 2.x ohdsi-webapi-from-image.
+  ohdsi-webapi-3:
+    profiles: [ "webapi-3" ]
+    image: ${WEBAPI_IMAGE_3:-ohdsi/webapi:3.0-local}
+    extends:
+      file: "./compose/ohdsi-webapi-3.yml"
+      service: ohdsi-webapi-3
 
   ohdsi-atlas-from-image:
     profiles: [ "default", "atlas-from-image" ]
