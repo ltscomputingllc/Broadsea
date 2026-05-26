@@ -115,6 +115,12 @@ services:
     image: ${ATLAS_IMAGE_3:-ohdsi/atlas:3.0-local}
     env_file:
       - ./env/atlas-3.env
+    environment:
+      # ATLAS_USER_AUTH_ENABLED is false in the project .env (2.x) but must be true
+      # for atlas-3. Pin it here — an `environment:` entry is the highest-precedence
+      # source — so the atlas-3 container always gets true regardless of how Compose
+      # resolves the duplicate key, and without changing the 2.x value.
+      ATLAS_USER_AUTH_ENABLED: "true"
     extends:
       file: "./compose/ohdsi-atlas-3.yml"
       service: ohdsi-atlas-3
@@ -665,6 +671,8 @@ secrets:
     file: ${GITHUB_PAT_SECRET_FILE}
   WEBAPI_DATASOURCE_PASSWORD:
     file: ${WEBAPI_DATASOURCE_PASSWORD_FILE}
+  SECURITY_JWT_SECRET:
+    file: ${SECURITY_JWT_SECRET_FILE}
   SECURITY_LDAP_SYSTEM_PASSWORD:
     file: ${SECURITY_LDAP_SYSTEM_PASSWORD_FILE}
   SECURITY_DB_DATASOURCE_PASSWORD:

@@ -8,6 +8,11 @@ set -e
 # 3.0 uses SPRING_FLYWAY_PASSWORD (not FLYWAY_DATASOURCE_PASSWORD).
 export DATASOURCE_PASSWORD="$(cat /run/secrets/WEBAPI_DATASOURCE_PASSWORD)"
 export SPRING_FLYWAY_PASSWORD="$DATASOURCE_PASSWORD"
+export SECURITY_AUTH_DB_DATASOURCE_PASSWORD="$DATASOURCE_PASSWORD"
+
+# JWT signing secret (HS256). 3.0 binds env SECURITY_JWT_SECRET -> security.jwt.secret
+# and fails startup if it is blank. Injected from the Docker secret, not the env file.
+export SECURITY_JWT_SECRET="$(cat /run/secrets/SECURITY_JWT_SECRET)"
 
 # Only set a custom trustStore when a non-empty cacerts file is mounted at /tmp/cacerts.
 # Otherwise rely on the JRE's default ($JAVA_HOME/lib/security/cacerts) — no hard-coded path.

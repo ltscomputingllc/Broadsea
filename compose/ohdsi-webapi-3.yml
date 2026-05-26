@@ -30,9 +30,10 @@ services:
     entrypoint: ["/bin/sh","/entrypoint.sh"]
     secrets:
       - WEBAPI_DATASOURCE_PASSWORD
+      - SECURITY_JWT_SECRET
     # All non-secret app config now lives in env/webapi-3.env, injected via env_file declared
-    # on the ohdsi-webapi-3 service in docker-compose.yml. The DB password is still supplied
-    # from the Docker secret by webapi/docker-entrypoint-3.sh (DATASOURCE_PASSWORD /
-    # SPRING_FLYWAY_PASSWORD). Auth is left disabled (no SECURITY_AUTH_* set).
+    # on the ohdsi-webapi-3 service in docker-compose.yml. The DB password and JWT signing
+    # secret are supplied from Docker secrets by webapi/docker-entrypoint-3.sh
+    # (DATASOURCE_PASSWORD / SPRING_FLYWAY_PASSWORD / SECURITY_JWT_SECRET).
     labels:
       - "traefik.enable=true"
