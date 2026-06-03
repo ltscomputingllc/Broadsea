@@ -107,42 +107,113 @@ services:
       file: "./compose/ohdsi-atlas.yml"
       service: ohdsi-atlas
 
-  # Atlas 3.0 (nginx static app) - locally-built image, env-var config via env/atlas-3.env.
-  # Not in the "default" profile; uses container_name ohdsi-atlas so do NOT run this
-  # alongside the 2.x ohdsi-atlas-from-image.
+  # Atlas 3.0 (OHDSI/Atlas3 Vue3/Vite SPA) — EXECUTE-ONLY. Caddy file-server on :8080 behind
+  # Traefik. Runtime config is the baked ./atlas-3/config-local.json (api.url=/WebAPI, DB-auth),
+  # overridable per-host via a bind-mount (see compose/ohdsi-atlas-3.yml). The image is produced
+  # by the atlas-3-from-git BUILD profile (or pulled at GA). Not in the "default" profile; uses
+  # container_name ohdsi-atlas so do NOT run alongside ohdsi-atlas-from-image.
   ohdsi-atlas-3:
     profiles: [ "atlas-3" ]
     image: ${ATLAS_IMAGE_3:-ohdsi/atlas:3.0-local}
+    extends:
+      file: "./compose/ohdsi-atlas-3.yml"
+      service: ohdsi-atlas-3
+
+  # Legacy "2-branch-3" Atlas (Knockout codebase, OHDSI/Atlas webapi-3.0 branch made WebAPI-3.0
+  # compatible) — the nginx env-var image, configured via env/atlas-3.env. FALLBACK runtime for
+  # sites that prefer the legacy UI over true Atlas3. Built by the atlas-2-branch-3-from-git
+  # profile (writes ohdsi/atlas:2-branch-3-local). Uses container_name ohdsi-atlas, so it is
+  # mutually exclusive with atlas-3 and atlas-from-image (bring one down before starting another).
+  # Run it with:  docker compose --profile atlasdb --profile webapi-3 --profile atlas-2-branch-3 up -d
+  ohdsi-atlas-2-branch-3:
+    profiles: [ "atlas-2-branch-3" ]
+    image: ${ATLAS_2_BRANCH_3_IMAGE:-ohdsi/atlas:2-branch-3-local}
     env_file:
       - ./env/atlas-3.env
     environment:
-      # ATLAS_USER_AUTH_ENABLED is false in the project .env (2.x) but must be true
-      # for atlas-3. Pin it here — an `environment:` entry is the highest-precedence
-      # source — so the atlas-3 container always gets true regardless of how Compose
-      # resolves the duplicate key, and without changing the 2.x value.
+      # ATLAS_USER_AUTH_ENABLED is false in the project .env (2.x) but must be true for the
+      # legacy 3.0-compatible Atlas. Pin it here (highest-precedence source) without changing
+      # the 2.x value — same approach used by the pre-Atlas3 atlas-3 service.
       ATLAS_USER_AUTH_ENABLED: "true"
     extends:
       file: "./compose/ohdsi-atlas-3.yml"
       service: ohdsi-atlas-3
 
-  # WebAPI and Atlas services based on git repo (for developers) -------------
+  # ============================================================================
+  # BUILD-FROM-SOURCE PROFILES  (each gated by its own profile — never in default)
+  # Build services share container_name with their consume counterparts; do not run
+  # a *-from-git service alongside the matching from-image / -3 service.
+  # ----------------------------------------------------------------------------
+  # PERMANENT — generic "build any commit" tools, version-agnostic, keep forever:
+  #   webapi-from-git · atlas-from-git
+  # ----------------------------------------------------------------------------
+  # TEMPORARY — 3.0 bootstrap builds. DELETE at GA, when the official OHDSI GitHub
+  # Actions publish ohdsi/webapi:3.x and ohdsi/atlas:3.x to Docker Hub. See the
+  # README "Transition to official GA images" notes. To remove: delete these three
+  # services + their .env block; flip WEBAPI_IMAGE_3 / ATLAS_IMAGE_3 to the
+  # official tags. Nothing else changes.
+  #   webapi-3-from-git · atlas-3-from-git · atlas-2-branch-3-from-git
+  # ============================================================================
+
+  # --- PERMANENT: generic 2.x build-AND-run tools (developers) ---
   ohdsi-webapi-from-git:
     profiles: [ "webapi-from-git" ]
-    build: 
+    build:
       context: ${WEBAPI_GITHUB_URL}
       args:
         MAVEN_PARAMS: -DskipTests=true -DskipUnitTests=true
         MAVEN_PROFILE: ${WEBAPI_MAVEN_PROFILE}
-    extends: 
+    extends:
       file: "./compose/ohdsi-webapi.yml"
       service: ohdsi-webapi
 
   ohdsi-atlas-from-git:
     profiles: [ "atlas-from-git" ]
     build: ${ATLAS_GITHUB_URL}
-    extends: 
+    extends:
       file: "./compose/ohdsi-atlas.yml"
       service: ohdsi-atlas
+
+  # --- TEMPORARY: 3.0 bootstrap builds (pure build-only; invoke with `build`, never `up`) ---
+
+  # BUILD-ONLY. WebAPI 3.0 from a SHA-pinned git ref (Spring Boot JAR / Java 21). Heavy Maven build —
+  # NOT in default. Writes the WEBAPI_IMAGE_3 tag; the webapi-3 EXECUTE profile then runs that image.
+  ohdsi-webapi-3-from-git:
+    profiles: [ "webapi-3-from-git" ]
+    image: ${WEBAPI_IMAGE_3:-ohdsi/webapi:3.0-local}   # tag written by the build
+    platform: ${DOCKER_ARCH}                           # build for the DEPLOY arch (see README cross-arch note)
+    build:
+      context: ${WEBAPI_GITHUB_URL_3}
+      args:
+        MAVEN_PARAMS: ${WEBAPI_MAVEN_PARAMS_3}         # NO MAVEN_PROFILE (3.0 has no such ARG)
+
+  # BUILD-ONLY. True Atlas3 (OHDSI/Atlas3 Vue3/Vite SPA) from ./atlas-3 (the Dockerfile does a
+  # SHA-pinned git fetch). Light Node build. Writes the ATLAS_IMAGE_3 tag; the atlas-3 EXECUTE
+  # profile then runs that image. Bump ATLAS3_SHA to redeploy a newer commit.
+  ohdsi-atlas-3-from-git:
+    profiles: [ "atlas-3-from-git" ]
+    image: ${ATLAS_IMAGE_3:-ohdsi/atlas:3.0-local}   # tag written by the build
+    platform: ${DOCKER_ARCH}                         # build for the DEPLOY arch (see README cross-arch note)
+    build:
+      context: ./atlas-3
+      args:
+        ATLAS3_REF: ${ATLAS3_REF:-cknoll/structure-changes}
+        # Unset-only form (single `-`, no colon): UNSET → pinned default; set to EMPTY
+        # (--build-arg ATLAS3_SHA=) → passes "" through so the Dockerfile fetches the
+        # ATLAS3_REF branch tip. (The `:-` colon form would treat empty as unset and
+        # re-apply the default, defeating tip builds.)
+        ATLAS3_SHA: ${ATLAS3_SHA-f80f7169c92dd3a7ec5b86a9e0ff67dbb1472502}
+        VITE_BASE_PATH: /atlas/
+
+  # BUILD-ONLY. Legacy "2-branch-3" Atlas (Knockout codebase, OHDSI/Atlas branch webapi-3.0),
+  # SHA-pinned. Writes the SAME tag the atlas-2-branch-3 EXECUTE profile reads
+  # (${ATLAS_2_BRANCH_3_IMAGE:-ohdsi/atlas:2-branch-3-local}) — a DIFFERENT variable from
+  # ATLAS_IMAGE_3, so it never overwrites :3.0-local (reserved for the true Atlas3 UI).
+  ohdsi-atlas-2-branch-3-from-git:
+    profiles: [ "atlas-2-branch-3-from-git" ]
+    image: ${ATLAS_2_BRANCH_3_IMAGE:-ohdsi/atlas:2-branch-3-local}   # matches the execute service tag
+    platform: ${DOCKER_ARCH}
+    build: ${ATLAS_2_BRANCH_3_GITHUB_URL}
 
   # -----------------------------------------------------------------
 

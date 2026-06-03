@@ -1,0 +1,11 @@
+{
+  "api": { "url": "/WebAPI" },
+  "userAuthenticationEnabled": true,
+  "enableSkipLogin": false,
+  "enablePermissionManagement": true,
+  "authProviders": [
+    { "name": "Database", "url": "user/login/db", "ajax": true, "icon": "mdi-database", "isUseCredentialsForm": true }
+  ],
+  "enableTermsAndConditions": false,
+  "defaultLocale": "en"
+}

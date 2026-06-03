@@ -1,0 +1,22 @@
+# Broadsea serve-stage Caddyfile for OHDSI Atlas3.
+# Derived from upstream OHDSI/Atlas3 Caddyfile, reduced to a static file-server on :8080:
+#   - TLS dropped              → Traefik terminates TLS at the edge.
+#   - /WebAPI reverse_proxy dropped → Traefik routes /WebAPI to the webapi-3 service.
+# Only the /atlas static block remains, plus a deep-link fix for the runtime config file.
+:8080 {
+	redir / /atlas/ permanent
+	redir /atlas /atlas/ permanent
+
+	# The SPA loads runtime config via a RELATIVE fetch('./config-local.json'). On a hard
+	# refresh of a nested route (e.g. /atlas/cohorts/123) the browser requests
+	# /atlas/cohorts/config-local.json. Rewrite any such nested request back to the canonical
+	# file so the app gets its real config (auth on) instead of silently falling back to defaults.
+	@misplaced_config path_regexp ^/atlas/.+/config-local\.json$
+	rewrite @misplaced_config /atlas/config-local.json
+
+	handle /atlas/* {
+		root * /srv
+		try_files {path} /atlas/index.html
+		file_server
+	}
+}

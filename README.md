@@ -281,6 +281,52 @@ OpenLDAP is provided for testing purposes, and is not recommended for any produc
 
 To build either Atlas or WebAPI from a git repo instead of from Docker Hub, use Section 6 to specify the Git repo paths. Branches and commits can be in the URL after a "\#".
 
+#### OHDSI 3.0 stack (WebAPI 3.0 + Atlas3)
+
+The OHDSI 3.0 stack is launched with the `./atlas-3_up.sh` script (it enables the `atlasdb`, `webapi-3`, and `atlas-3` profiles; `./atlas-3_down.sh` tears it down). The **default** profile is unchanged and still runs the 2.x stack (`docker compose --profile default up -d`). 2.x and 3.0 both use `container_name` `ohdsi-atlas` / `ohdsi-webapi`, so bring one stack down before starting the other.
+
+Until OHDSI officially publishes 3.x images to Docker Hub, the 3.0 images are built locally from **committed, SHA-pinned recipes** so they reproduce on any Docker host. The pins live in Section 6 of `.env`; the build services live in the "BUILD-FROM-SOURCE PROFILES" section of `docker-compose.yml`.
+
+| Component | Run profile | How its image is produced | Image tag |
+|-----------|-------------|---------------------------|-----------|
+| WebAPI 3.0 (Spring Boot JAR / Java 21) | `webapi-3` | **build-only** profile `webapi-3-from-git` (heavy Maven build), SHA-pinned `OHDSI/WebAPI` `webapi-3.0` | `${WEBAPI_IMAGE_3:-ohdsi/webapi:3.0-local}` |
+| Atlas3 (true Vue3/Vite SPA) | `atlas-3` | **build-only** profile `atlas-3-from-git` from `./atlas-3` (Caddy static server on :8080), SHA-pinned `OHDSI/Atlas3` `cknoll/structure-changes` | `${ATLAS_IMAGE_3:-ohdsi/atlas:3.0-local}` |
+| Legacy "2-branch-3" Atlas (Knockout, fallback) | `atlas-2-branch-3` | **build-only** profile `atlas-2-branch-3-from-git`, SHA-pinned `OHDSI/Atlas` `webapi-3.0` | `${ATLAS_2_BRANCH_3_IMAGE:-ohdsi/atlas:2-branch-3-local}` |
+
+**WebAPI 3.0** uses a pure **build-only** profile (no entrypoint/secrets) — invoke with `build`, never `up`. Its Maven build is too heavy for the small `atlas-preview` EC2 box, so build it on a Maven-capable machine (e.g. a laptop) and ship the result:
+
+```bash
+docker compose --profile webapi-3-from-git build          # writes ohdsi/webapi:3.0-local
+docker save ohdsi/webapi:3.0-local | gzip > webapi-3.0-local.tar.gz
+# scp to the deploy host, then on the host:
+docker load < webapi-3.0-local.tar.gz
+```
+
+**Atlas3** uses its own **build-only** profile `atlas-3-from-git` (light Node build, runs entirely in the builder stage — no host npm). The `atlas-3` run profile is execute-only (image, no `build:`), so build first, then bring the stack up:
+
+```bash
+docker compose --profile atlas-3-from-git build   # writes ohdsi/atlas:3.0-local from ./atlas-3 (SHA-pinned)
+./atlas-3_up.sh                                    # = --profile atlasdb --profile webapi-3 --profile atlas-3
+```
+
+- **Redeploy a newer Atlas3 commit:** bump `ATLAS3_SHA` in `.env` (Section 6) and rebuild. To build the `ATLAS3_REF` branch tip instead, **set `ATLAS3_SHA` empty** — `docker compose --profile atlas-3-from-git build --build-arg ATLAS3_SHA= --no-cache ohdsi-atlas-3-from-git`. Merely *unsetting* `ATLAS3_SHA` re-applies the pinned default (the compose default uses the `${ATLAS3_SHA-…}` unset-only form), so it does **not** take the tip.
+- **Override runtime config without rebuilding:** the image bakes `atlas-3/config-local.json` (`api.url:/WebAPI`, DB-auth). To use a different config per host (extra auth providers, different `api.url`), bind-mount your file onto `/srv/atlas/config-local.json` (see the commented `volumes:` in `compose/ohdsi-atlas-3.yml`) and recreate the container — no rebuild.
+
+**Legacy fallback (`atlas-2-branch-3` profile).** To run the legacy Knockout Atlas instead of true Atlas3, build its image and start that profile (it keeps the nginx env-var config in `env/atlas-3.env`):
+
+```bash
+docker compose --profile atlas-2-branch-3-from-git build   # writes ohdsi/atlas:2-branch-3-local
+docker compose --profile atlasdb --profile webapi-3 --profile atlas-2-branch-3 up -d
+```
+
+Do **not** run it by repointing `ATLAS_IMAGE_3` — the `atlas-3` service builds true Atlas3, so use the dedicated `atlas-2-branch-3` profile. It shares `container_name` `ohdsi-atlas`, so it is mutually exclusive with `atlas-3`.
+
+**Cross-arch:** the build services set `platform: ${DOCKER_ARCH}`, so they build for the **deploy** architecture. To build an `amd64` image on an Apple-Silicon (`arm64`) laptop, set `DOCKER_ARCH=linux/amd64` (Section 1 of `.env`); Docker uses buildx/QEMU emulation (slower, but the loaded image runs natively on the EC2 host). Verify with `docker image inspect <img> --format '{{.Architecture}}'`.
+
+**Recovery:** if a build host is ever lost, the committed SHA-pinned recipe regenerates an *equivalent* image on any adequately-resourced Docker host (best-effort — base tags such as `eclipse-temurin:21-jre`/`node:20-alpine`/`caddy:2-alpine` and the Maven/npm registries are mutable, so it is not guaranteed byte-identical; pin base images by `@sha256:` digest where exact reproducibility matters).
+
+**Transition to official GA images:** when OHDSI publishes `ohdsi/webapi:3.x` / `ohdsi/atlas:3.x` to Docker Hub, set `WEBAPI_IMAGE_3` / `ATLAS_IMAGE_3` to those tags and delete the three TEMPORARY build services (`webapi-3-from-git`, `atlas-3-from-git`, `atlas-2-branch-3-from-git`) and their `.env` block. Because the `webapi-3` / `atlas-3` run services are execute-only (image, no `build:`), they then just pull the official image — nothing else to change. Keep the generic `webapi-from-git` / `atlas-from-git` profiles.
+
 #### Phoebe Integration for Atlas
 
 With Atlas 2.12.0 and above, a new concept recommendation feature is available, based upon the [Phoebe project](https://forums.ohdsi.org/t/phoebe-2-0/17410 "Phoebe Project"). Review and fill out Section 10 of the .env file to load the concept_recommended table needed for this feature into a Postgres hosted OMOP Vocabulary.
